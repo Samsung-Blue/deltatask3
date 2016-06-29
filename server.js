@@ -2,9 +2,9 @@ var http = require('http');
 var mysql = require('mysql');
 var fs = require('fs');
 var url = require('url');
+var path = require('path');
 var formidable = require('formidable');
 var bcrypt = require('bcryptjs');
-var pictures =[];
 var connection = mysql.createConnection({
   host     : 'localhost',
   user     : 'root',
@@ -12,16 +12,16 @@ var connection = mysql.createConnection({
   port : 8801,
   database : 'users'
 });
-var i=0,pass=-1;
+var i=0;
 connection.connect(function(err){
 	if(err)
 		console.log("Error connecting to database");
 	else
-		console.log("Connection to database sucessful");
+		console.log("Connection to database successful");
 });
 connection.query("DROP TABLE users",function(err,result){
 });
-connection.query("CREATE TABLE users(pass integer,username varchar(100),password varchar(100),email varchar(100),phone varchar(10))",function(err,result){
+connection.query("CREATE TABLE users(path varchar(200),username varchar(100) NOT NULL UNIQUE,password varchar(100) NOT NULL,email varchar(100) NOT NULL,phone varchar(10) NOT NULL)",function(err,result){
 	if(err)
 		console.log("Error creating table");
 	else
@@ -48,16 +48,17 @@ function displayForm(res){
 }
 
 function processFields(req,res){
-    i=0;
     var post={
-        pass:-1,
+        path : '',
         username :'',
         password:'',
         email:'',
         phone:''
     };
+    var confirm='';
+    i=0;
+    var fields=[];
     var form = new formidable.IncomingForm();
-    var fields =[];
     form.on('field',function(field,value){
       fields[field]=value;
       i++;
@@ -68,21 +69,24 @@ function processFields(req,res){
           post.password= value;
       }
       else if(i===3)
-          post.email=value;
+          confirm=value;
       else if(i===4)
+        post.email=value;
+      else if(i===5)
           post.phone = value;
-      else
-      {
-          console.log(value);
-          pictures.push(value);
-          pass++;
-          post.pass=pass;
-      }
-
     });
+    form.on('file',function(name,file){
+      console.log(file);
+      if(file.name==='')
+         post.path=__dirname+'/noprofile.jpg';
+      else
+        post.path=file.path;
+       });
     form.on('end',function(){
         if(i===5)
         {
+            if(post.username!==''&&post.passowrd!==''&&post.password===confirm)
+            {
             var salt = bcrypt.genSaltSync(1);
             var hash = bcrypt.hashSync(post.password,salt);
             post.password = hash;
@@ -90,6 +94,14 @@ function processFields(req,res){
                 console.log("Inserted");
                 displayForm(res);
             });
+          }
+              else if(post.username===''||post.passowrd==='')
+              {
+                res.end("Username and Password field should not be left blank");
+              }
+              else {
+                res.end("Check / Re-enter your password");
+              }
         }
         else if(i===2)
         {
@@ -98,7 +110,6 @@ function processFields(req,res){
       });
     form.parse(req);
   }
-
 function displayDetails(req,res,post)
 {
   connection.query('SELECT * FROM users WHERE username=?',post.username,function(err,rows,fields){
@@ -109,16 +120,19 @@ function displayDetails(req,res,post)
                       var pathname = url.parse(req.url).pathname;
                       if(pathname==='/profile')
                       {
-                        var index = rows[0].pass;
-                        var path = __dirname + '/'+ pictures[index];
-                        res.writeHead(200,{'Content-type':'image/png'});
-                        fs.createReadStream(path).pipe(res);
+                       if(rows[0].path==='')
+                       {
+                        res.end("Some error has occurred");
                       }
                       else{
-                      var index = rows[0].pass;
-                      var path = __dirname + '/'+ pictures[index];
-                      var body ="Username : "+rows[0].username+'\n'+"Password : " +rows[0].password+'\n'+"Email : "+rows[0].email+'\n'+"Phone : "+rows[0].phone
-                      var body = '<html><head></head><body><ul><li>Username : '+rows[0].username+'</li><li>Password : '+rows[0].password+'</li><li>Email : '+rows[0].email+'</li><li>Phone : '+rows[0].phone+'</li><br><h3>Click back button to logout</h3></body>';
+                        var img = fs.readFileSync(rows[0].path);
+                        var contenttype = check(rows[0].path);
+                        res.writeHead(200, {'Content-Type': contenttype });
+                        res.end(img, 'binary');
+                      }
+                      }
+                      else{
+                      var body = '<html><head></head><body><ul><li>Username : '+rows[0].username+'</li><li>Email : '+rows[0].email+'</li><li>Phone : '+rows[0].phone+'</li><br><a href="http://localhost:8081" style="text-decoration:none;color:black"><div style="background-color:pink;padding-top:10px;height:35px;width:100px;text-align:center;border-radius:5px;">Logout</div></a></body>';
                       res.writeHead(200,{'Content-type':'text/html'});
                       res.write(body);
                     }
@@ -127,14 +141,32 @@ function displayDetails(req,res,post)
                     res.end("Either Username or Password is wrong");
                 }
                 else
-                    console.log("Error has occurred");
+                    res.end("Some Error has occurred");
             });
 }
 function displayLogin(res){
   fs.readFile('login.html',function(err,data){
+    if(!err)
+    {
     res.writeHead(200,{'Content-type':'text/html','Content-length':data.length});
     res.write(data);
     res.end();
+  }
+  else
+    res.end("Some error has occurred");
   });
+}
+function check(givenPath)
+{
+  if(path.extname(givenPath)==='.jpg')
+    return "image/jpg";
+  else if(path.extname(givenPath)==='.png')
+    return "image/png";
+  else if(path.extname(givenPath)==='.gif')
+    return "image/gif";
+  else if(path.extname(givenPath)==='.bmp')
+    return "image/bmp";
+  else 
+    return "image/png";
 }
 console.log("Server is running at 8081");
